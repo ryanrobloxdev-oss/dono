@@ -2,14 +2,17 @@ import express from "express";
 import fetch from "node-fetch";
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 app.use(express.json());
 
-// Roblox-like wrapper for HttpService:GetAsync
+/* ------------------------- HELPER FUNCTIONS ------------------------- */
+
 async function GetAsync(url) {
     const res = await fetch(url, {
         method: "GET",
         headers: {
-            "User-Agent": "Mozilla/5.0 RobloxGamepassBackend"
+            "User-Agent": "Roblox-Gamepass-Fetcher"
         }
     });
 
@@ -20,25 +23,24 @@ async function GetAsync(url) {
     return await res.json();
 }
 
-// simple throttle to avoid RoProxy ratelimits
-function wait(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// --------------------------------------------------------
-// ✔️ NEW 2025 METHOD: Fetch ALL gamepasses a user owns
-// Uses catalog.roproxy.com API (does NOT 403 like /games/)
-// --------------------------------------------------------
+/* --------------------- MAIN GAMEPASS FETCH FUNCTION --------------------- */
 
 async function getUserCreatedGamepasses(userId) {
     const gamepasses = [];
 
-    let cursor = "";
+    let cursor = null;
     let keepGoing = true;
 
     while (keepGoing) {
-        const url = 
-            `https://catalog.roproxy.com/v1/search/items?category=GamePass&creatorTargetId=${userId}&limit=30&cursor=${cursor}`;
+
+        const cursorParam = cursor ? `&cursor=${cursor}` : "";
+
+        const url =
+            `https://catalog.roproxy.com/v1/search/items?category=GamePass` +
+            `&creatorType=User&creatorTargetId=${userId}` +
+            `&limit=30${cursorParam}`;
 
         console.log("Requesting:", url);
 
@@ -63,42 +65,22 @@ async function getUserCreatedGamepasses(userId) {
             }
         }
 
-        // Pagination
         cursor = data.nextPageCursor;
-        if (!cursor || cursor === "null") keepGoing = false;
+        keepGoing = cursor != null;
 
-        await wait(300); // anti-ratelimit
+        // throttle to respect Roblox rate limits
+        await wait(200);
     }
 
     console.log("Total gamepasses found:", gamepasses.length);
     return gamepasses;
 }
 
-// --------------------------------------------------------
-// ✔️ API endpoint for Roblox
-// --------------------------------------------------------
+/* ----------------------------- EXPRESS ENDPOINT ----------------------------- */
 
 app.get("/get-gamepasses/:userId", async (req, res) => {
     const userId = req.params.userId;
 
     try {
         const passes = await getUserCreatedGamepasses(userId);
-        res.json({ success: true, data: passes });
-    } catch (err) {
-        console.error("Backend error:", err);
-        res.status(500).json({
-            success: false,
-            error: err.toString()
-        });
-    }
-});
-
-// --------------------------------------------------------
-// ✔️ Render.com will supply PORT as an environment variable
-// --------------------------------------------------------
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Gamepass backend running on port ${PORT}`);
-});
-
+        res.json
