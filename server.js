@@ -30,44 +30,71 @@ const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 async function getUserCreatedGamepasses(userId) {
     const gamepasses = [];
 
-    let cursor = null;
-    let keepGoing = true;
+    // 1️⃣ Fetch all games created by this user
+    let gamesUrl = `https://games.roproxy.com/v2/users/${userId}/games?accessFilter=2&limit=50&sortOrder=Asc`;
+    let gameData;
+    try {
+        gameData = await GetAsync(gamesUrl);
+    } catch (err) {
+        console.error("Failed to fetch user games:", err);
+        return [];
+    }
 
-    while (keepGoing) {
-        const cursorParam = cursor ? `&cursor=${cursor}` : "";
+    if (!gameData || !gameData.data) return [];
 
-        const url =
-            `https://catalog.roproxy.com/v1/search/items?category=GamePass` +
-            `&creatorType=User&creatorTargetId=${userId}` +
-            `&limit=30${cursorParam}`;
+    // 2️⃣ Iterate over each game
+    for (const game of gameData.data) {
+        // Determine creator type
+        let creatorType = "User";
+        let creatorId = userId;
 
-        console.log("Requesting:", url);
-
-        let data;
-        try {
-            data = await GetAsync(url);
-        } catch (err) {
-            console.error("Failed to retrieve gamepasses:", err);
-            break;
+        if (game.creator && game.creator.type === "Group" && game.creator.id) {
+            creatorType = "Group";
+            creatorId = game.creator.id;
         }
 
-        if (!data || !data.data) break;
+        // Catalog API pagination
+        let cursor = null;
+        let keepGoing = true;
 
-        for (const item of data.data) {
-            if (item.product && item.product.price !== null) {
-                gamepasses.push({
-                    id: item.id,
-                    price: item.product.price,
-                    displayName: item.name,
-                    assetType: "Gamepass"
-                });
+        while (keepGoing) {
+            const cursorParam = cursor ? `&cursor=${cursor}` : "";
+            const url = `https://catalog.roproxy.com/v1/catalog/items` +
+                        `?creatorTargetId=${creatorId}` +
+                        `&creatorType=${creatorType}` +
+                        `&limit=30&sortOrder=Asc${cursorParam}`;
+
+            console.log(`Requesting gamepasses for game ${game.id}:`, url);
+
+            let data;
+            try {
+                data = await GetAsync(url);
+            } catch (err) {
+                console.error(`Failed to retrieve gamepasses for game ${game.id}:`, err);
+                break; // fail-safe: skip this game if error
             }
+
+            if (!data || !data.data) break;
+
+            for (const item of data.data) {
+                if (item.product && item.product.price !== null) {
+                    // Avoid duplicates
+                    if (!gamepasses.find(p => p.id === item.id)) {
+                        gamepasses.push({
+                            id: item.id,
+                            price: item.product.price,
+                            displayName: item.name,
+                            assetType: "Gamepass"
+                        });
+                    }
+                }
+            }
+
+            cursor = data.nextPageCursor;
+            keepGoing = cursor != null;
+
+            await wait(200); // throttle to avoid rate-limits
         }
-
-        cursor = data.nextPageCursor;
-        keepGoing = cursor != null;
-
-        await wait(200);
     }
 
     console.log("Total gamepasses found:", gamepasses.length);
@@ -93,4 +120,3 @@ app.get("/get-gamepasses/:userId", async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Backend running on port ${PORT}`);
 });
-
