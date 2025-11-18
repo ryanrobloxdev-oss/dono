@@ -34,7 +34,6 @@ async function getUserCreatedGamepasses(userId) {
     let keepGoing = true;
 
     while (keepGoing) {
-
         const cursorParam = cursor ? `&cursor=${cursor}` : "";
 
         const url =
@@ -68,7 +67,6 @@ async function getUserCreatedGamepasses(userId) {
         cursor = data.nextPageCursor;
         keepGoing = cursor != null;
 
-        // throttle to respect Roblox rate limits
         await wait(200);
     }
 
@@ -83,4 +81,16 @@ app.get("/get-gamepasses/:userId", async (req, res) => {
 
     try {
         const passes = await getUserCreatedGamepasses(userId);
-        res.json
+        res.json({ success: true, data: passes });
+    } catch (err) {
+        console.error("Server error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/* ------------------------------- START SERVER ------------------------------- */
+
+app.listen(PORT, () => {
+    console.log(`Backend running on port ${PORT}`);
+});
+
